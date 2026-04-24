@@ -1,2 +1,2 @@
-# neptune
-An interptreter for the Lox programming language.
+<center># neptune</center>
+*An interptreter for the Lox programming language written in Go.*
