@@ -9,6 +9,6 @@ type Token struct {
 	Line    int
 }
 
-func (t *Token) String() string {
+func (t Token) String() string {
 	return fmt.Sprintf("%v - %q - %v", t.Type, t.Lexeme, t.Literal)
 }

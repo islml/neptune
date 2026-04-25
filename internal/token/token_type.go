@@ -49,6 +49,6 @@ const (
 	TokenType_Var
 	TokenType_While
 
-	// End of line.
+	// End of file.
 	TokenType_EOF
 )

@@ -1,5 +1,0 @@
-// this is a comment
-(( )){} // grouping stuff
-!*+-/=<> <= == // operators
-123.123
-fun test and

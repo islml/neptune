@@ -5,35 +5,65 @@ import (
 	"strconv"
 	"unicode"
 
-	"github.com/islml/neptune/token"
+	"github.com/islml/neptune/internal/token"
 )
+
+var keywords = map[string]token.TokenType{
+	"and":    token.TokenType_And,
+	"class":  token.TokenType_Class,
+	"else":   token.TokenType_Else,
+	"false":  token.TokenType_False,
+	"for":    token.TokenType_For,
+	"fun":    token.TokenType_Fun,
+	"if":     token.TokenType_If,
+	"nil":    token.TokenType_Nil,
+	"or":     token.TokenType_Or,
+	"print":  token.TokenType_Print,
+	"return": token.TokenType_Return,
+	"super":  token.TokenType_Super,
+	"this":   token.TokenType_This,
+	"true":   token.TokenType_True,
+	"var":    token.TokenType_Var,
+	"while":  token.TokenType_While,
+}
+
+type ScanError struct {
+	Line    int
+	Message string
+}
 
 type Scanner struct {
 	Source []rune
 	Tokens []token.Token
+	Errors []ScanError
 
-	start int
+	start   int
 	current int
-	line int
+	line    int
 }
 
-func (s *Scanner) ScanTokens() []token.Token {
-	s.start   = 0
+func New(source string) *Scanner {
+	return &Scanner{Source: []rune(source)}
+}
+
+func (s *Scanner) ScanTokens() ([]token.Token, []ScanError) {
+	s.start = 0
 	s.current = 0
-	s.line    = 1
-	
+	s.line = 1
+
 	for !s.isAtEnd() {
 		s.start = s.current
 		s.scanToken()
 	}
 
 	s.Tokens = append(s.Tokens, token.Token{
-		Type: token.TokenType_EOF,
-		Lexeme: "",
+		Type:    token.TokenType_EOF,
+		Lexeme:  "",
 		Literal: nil,
-		Line: s.line,
+		Line:    s.line,
 	})
-	return s.Tokens
+
+	return s.Tokens, s.Errors
 }
 
 func (s *Scanner) isAtEnd() bool {
@@ -41,9 +71,10 @@ func (s *Scanner) isAtEnd() bool {
 }
 
 func (s *Scanner) scanToken() {
-	var c rune = s.advance()
+	c := s.advance()
 
 	switch c {
+	// Single-character tokens.
 	case '(':
 		s.addToken(token.TokenType_LeftParen)
 	case ')':
@@ -70,24 +101,26 @@ func (s *Scanner) scanToken() {
 		} else {
 			s.addToken(token.TokenType_Bang)
 		}
+
+	// One or two character tokens.
 	case '=':
-    if s.match('=') {
-        s.addToken(token.TokenType_EqualEqual)
-    } else {
-        s.addToken(token.TokenType_Equal)
-    }
+		if s.match('=') {
+			s.addToken(token.TokenType_EqualEqual)
+		} else {
+			s.addToken(token.TokenType_Equal)
+		}
 	case '<':
-    if s.match('=') {
-        s.addToken(token.TokenType_LessEqual)
-    } else {
-        s.addToken(token.TokenType_Less)
-    }
+		if s.match('=') {
+			s.addToken(token.TokenType_LessEqual)
+		} else {
+			s.addToken(token.TokenType_Less)
+		}
 	case '>':
-    if s.match('=') {
-        s.addToken(token.TokenType_GreaterEqual)
-    } else {
-        s.addToken(token.TokenType_Greater)
-    }
+		if s.match('=') {
+			s.addToken(token.TokenType_GreaterEqual)
+		} else {
+			s.addToken(token.TokenType_Greater)
+		}
 	case '/':
 		if s.match('/') {
 			for s.peek() != '\n' && !s.isAtEnd() {
@@ -96,18 +129,25 @@ func (s *Scanner) scanToken() {
 		} else {
 			s.addToken(token.TokenType_Slash)
 		}
+
+	// Ignored characters.
 	case ' ', '\r', '\t':
+		return
 	case '\n':
 		s.line++
+
+	// Strings.
 	case '"':
-		s.sstring()
+		s.stringLiteral()
+
+	// Numbers & Identifiers.
 	default:
 		if unicode.IsDigit(c) {
 			s.number()
-		} else if unicode.IsLetter(c) {
+		} else if unicode.IsLetter(c) || c == '_' {
 			s.identifier()
 		} else {
-			panic(fmt.Sprintf("Unexpected character at line %d", s.line))
+			s.addError(s.line, fmt.Sprintf("Unexpected character %q.", c))
 		}
 	}
 }
@@ -119,29 +159,33 @@ func (s *Scanner) advance() rune {
 }
 
 func (s *Scanner) addToken(tokenType token.TokenType) {
-	str := s.Source[s.start : s.current]
+	str := s.Source[s.start:s.current]
 	s.Tokens = append(s.Tokens, token.Token{
-		Type: tokenType,
-		Lexeme: string(str),
+		Type:    tokenType,
+		Lexeme:  string(str),
 		Literal: nil,
-		Line: s.line,
+		Line:    s.line,
 	})
 }
 
 func (s *Scanner) addTokenWithLiteral(tokenType token.TokenType, literal any) {
 	s.Tokens = append(s.Tokens, token.Token{
-		Type: tokenType,
-		Lexeme: fmt.Sprintf("%v", literal),
+		Type:    tokenType,
+		Lexeme:  string(s.Source[s.start:s.current]),
 		Literal: literal,
-		Line: s.line,
+		Line:    s.line,
 	})
 }
 
+func (s *Scanner) addError(line int, message string) {
+	s.Errors = append(s.Errors, ScanError{Line: line, Message: message})
+}
+
 func (s *Scanner) match(expected rune) bool {
-	if (s.isAtEnd()) {
+	if s.isAtEnd() {
 		return false
 	}
-	if (s.Source[s.current] != expected) {
+	if s.Source[s.current] != expected {
 		return false
 	}
 
@@ -151,21 +195,20 @@ func (s *Scanner) match(expected rune) bool {
 
 func (s *Scanner) peek() rune {
 	if s.isAtEnd() {
-		return '\n'
-	} else {
-		return s.Source[s.current]
+		return 0
 	}
+	return s.Source[s.current]
 }
 
 func (s *Scanner) nextPeek() rune {
-	if s.current + 1 >= len(s.Source) {
+	if s.current+1 >= len(s.Source) {
 		return 0
 	}
-  
-	return s.Source[s.current + 1];
+
+	return s.Source[s.current+1]
 }
 
-func (s *Scanner) sstring() {
+func (s *Scanner) stringLiteral() {
 	for s.peek() != '"' && !s.isAtEnd() {
 		if s.peek() == '\n' {
 			s.line++
@@ -174,11 +217,12 @@ func (s *Scanner) sstring() {
 	}
 
 	if s.isAtEnd() {
-		panic(fmt.Sprintf("Unterminated string at line %d", s.line))
+		s.addError(s.line, "Unterminated string.")
+		return
 	}
 
 	s.advance()
-	value := s.Source[s.start + 1 : s.current - 1]
+	value := string(s.Source[s.start+1 : s.current-1])
 	s.addTokenWithLiteral(token.TokenType_String, value)
 }
 
@@ -195,12 +239,17 @@ func (s *Scanner) number() {
 		}
 	}
 
-	num, _ := strconv.ParseFloat(string(s.Source[s.start : s.current]), 64)
+	num, err := strconv.ParseFloat(string(s.Source[s.start:s.current]), 64)
+	if err != nil {
+		s.addError(s.line, fmt.Sprintf("Invalid number %q.", string(s.Source[s.start:s.current])))
+		return
+	}
+
 	s.addTokenWithLiteral(token.TokenType_Number, num)
 }
 
 func (s *Scanner) identifier() {
-	for unicode.IsLetter(s.peek()) || unicode.IsDigit(s.peek()) {
+	for unicode.IsLetter(s.peek()) || unicode.IsDigit(s.peek()) || s.peek() == '_' {
 		s.advance()
 	}
 
@@ -208,24 +257,6 @@ func (s *Scanner) identifier() {
 		s.addToken(t)
 		return
 	}
-	s.addToken(token.TokenType_Identifier)
-}
 
-var keywords = map[string]token.TokenType{
-	"and":    token.TokenType_And,
-	"class":  token.TokenType_Class,
-	"else":   token.TokenType_Else,
-	"false":  token.TokenType_False,
-	"for":    token.TokenType_For,
-	"fun":    token.TokenType_Fun,
-	"if":     token.TokenType_If,
-	"nil":    token.TokenType_Nil,
-	"or":     token.TokenType_Or,
-	"print":  token.TokenType_Print,
-	"return": token.TokenType_Return,
-	"super":  token.TokenType_Super,
-	"this":   token.TokenType_This,
-	"true":   token.TokenType_True,
-	"var":    token.TokenType_Var,
-	"while":  token.TokenType_While,
+	s.addToken(token.TokenType_Identifier)
 }
